@@ -25,4 +25,8 @@ test("add a rule through chat, then review the sample diff end to end", async ({
 
   // History: the finished review is saved to repo memory.
   await expect(page.locator("#history li").first()).toContainText("pasted diff");
+
+  // Layout: long diffs and code blocks must not make the page scroll sideways (this broke mobile once).
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
 });

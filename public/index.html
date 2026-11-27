@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Codex reviewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%230b6b6b%27/%3E%3Cpath d=%27M4 8.5l2.5 2.5L12 5.5%27 stroke=%27white%27 stroke-width=%272%27 fill=%27none%27/%3E%3C/svg%3E">
 <meta name="description" content="Review a diff or a GitHub pull request against your repo's engineering rules.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -51,7 +52,8 @@
   ol.rules li { display: grid; grid-template-columns: 28px 1fr; gap: 4px; padding: 8px 6px; border-radius: 6px; font-size: 13.5px; transition: background-color .25s; }
   ol.rules li .n { font-family: var(--mono); color: var(--ink-3); font-size: 12.5px; padding-top: 1px; }
   ol.rules li.user .n { color: var(--teal); font-weight: 500; }
-  ol.rules li.lit, ol.rules li.fresh { background: var(--teal-soft); }
+  ol.rules li.fresh { background: var(--teal-soft); }
+  ol.rules li.lit { background: var(--teal-soft); box-shadow: inset 3px 0 0 var(--teal); }
   .history { list-style: none; margin: 0; padding: 0; font-size: 13px; }
   .history li { padding: 6px 0; border-top: 1px solid var(--line); color: var(--ink-2); }
   .history b { font-weight: 500; color: var(--ink); }
@@ -83,6 +85,7 @@
   @media (prefers-reduced-motion: reduce) { .dot { animation: none; } ol.rules li { transition: none; } }
 
   /* The report */
+  .msg, .report { scroll-margin: 16px 0 24px; }
   .report { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   .report-head { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-bottom: 1px solid var(--line); }
   .verdict { flex: none; font-weight: 600; font-size: 13px; padding: 3px 10px; border-radius: 6px; border: 1.5px solid currentColor; }
@@ -93,6 +96,7 @@
   .report-head small { display: block; color: var(--ink-3); margin-top: 4px; font-size: 12.5px; }
   .finding { padding: 14px 18px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 4px 1fr; gap: 14px; }
   .finding:last-child { border-bottom: 0; }
+  .finding > div { min-width: 0; }
   .finding .bar { border-radius: 2px; background: var(--low); }
   .finding.high .bar { background: var(--high); }
   .finding.medium .bar { background: var(--med); }
@@ -103,6 +107,8 @@
   .file { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
   .rule-ref { border: 0; background: none; padding: 0; color: var(--teal); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: 13px; }
   .finding .issue { margin: 0 0 6px; }
+  .rule-text { margin: 0 0 6px; font-size: 12.5px; color: var(--ink-3); }
+  .evidence { margin: 2px 0 8px; padding: 8px 12px; background: var(--high-soft); border-radius: 6px; overflow: auto; font: 12.5px/1.5 var(--mono); color: var(--ink); white-space: pre-wrap; }
   .fix { font-size: 14px; color: var(--ink-2); }
   .fix p { margin: 0; white-space: pre-wrap; }
   .fix pre { margin: 6px 0; padding: 10px 12px; background: var(--add); border-radius: 6px; overflow: auto; font: 12.5px/1.5 var(--mono); color: var(--ink); }
@@ -119,7 +125,11 @@
   .composer .tip { max-width: 760px; margin: 6px auto 0; font-size: 12.5px; color: var(--ink-3); }
 
   @media (max-width: 860px) {
-    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+    .codex, .thread, .log-inner { min-width: 0; }
+    .composer { position: sticky; bottom: 0; }
+    .msg, .report { scroll-margin-bottom: 120px; }
+    .report-head { flex-direction: column; gap: 8px; }
     .codex { border-right: 0; border-bottom: 1px solid var(--line); }
     .codex-body { max-height: 34vh; }
     .thread { min-height: 70vh; }
@@ -219,13 +229,14 @@ function el(tag, attrs = {}, ...children) {
   for (const c of children.flat()) if (c != null) n.append(c instanceof Node ? c : document.createTextNode(String(c)));
   return n;
 }
-function add(node) { log.append(node); $("log").scrollTop = $("log").scrollHeight; return node; }
+// scrollIntoView works whether the log scrolls (desktop) or the whole page does (mobile).
+function add(node) { log.append(node); node.scrollIntoView({ block: "end" }); return node; }
 function bot(text, cls = "") { return add(el("div", { class: "msg bot " + cls }, el("p", {}, text))); }
 
 // Model text may contain ``` fences: render those as code blocks, the rest as plain text (never as HTML).
 function richText(text) {
   const wrap = el("div", { class: "fix" });
-  text.split(/```[\w-]*\n?/).forEach((part, i) => {
+  text.split(/```(?:[\w-]*\n)?/).forEach((part, i) => {
     if (!part.trim()) return;
     wrap.append(i % 2 ? el("pre", {}, part.replace(/\n$/, "")) : el("p", {}, part.trim()));
   });
@@ -278,8 +289,9 @@ function renderReport(out) {
     el("div", { class: "report-head" },
       el("span", { class: "verdict " + report.verdict }, verdictText),
       el("div", {}, el("p", {}, report.summary), el("small", {}, meta))),
-    report.findings.map((f) => {
+    report.findings.map((f, i) => {
       const rule = currentRules.find((r) => r.id === f.ruleId);
+      const ruleTextId = `rt-${Date.now()}-${i}`;
       return el("div", { class: "finding " + f.severity },
         el("span", { class: "bar", "aria-hidden": "true" }),
         el("div", {},
@@ -287,11 +299,13 @@ function renderReport(out) {
             el("span", { class: "sev" }, f.severity[0].toUpperCase() + f.severity.slice(1)),
             f.file ? el("span", { class: "file" }, f.file) : null,
             f.ruleId ? el("button", {
-              type: "button", class: "rule-ref", title: rule ? rule.text : "",
+              type: "button", class: "rule-ref", ...(rule ? { "aria-describedby": ruleTextId } : {}),
               onmouseenter: () => highlightRule(f.ruleId, true), onmouseleave: () => highlightRule(f.ruleId, false),
               onfocus: () => highlightRule(f.ruleId, true), onblur: () => highlightRule(f.ruleId, false),
               onclick: () => $("rule-" + f.ruleId)?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
             }, `Rule ${f.ruleId}`) : null),
+          rule ? el("p", { class: "rule-text", id: ruleTextId }, rule.text) : null,
+          f.evidence ? el("pre", { class: "evidence" }, f.evidence) : null,
           el("p", { class: "issue" }, f.issue),
           f.fix ? richText(f.fix) : null));
     }));
@@ -314,7 +328,7 @@ async function followReview(id) {
     try { s = await api(`/api/reviews/${id}`); } catch { continue; }
     const secs = Math.round((Date.now() - started) / 1000);
     label.textContent = { queued: "Queued", running: `Running, ${secs}s`, waiting: `Waiting to retry, ${secs}s` }[s.status] || s.status;
-    if (s.status === "complete") { box.replaceWith(renderReport(s.output)); loadMemory(); return; }
+    if (s.status === "complete") { const card = renderReport(s.output); box.replaceWith(card); card.scrollIntoView({ block: "start", behavior: "smooth" }); loadMemory(); return; }
     if (s.status === "errored" || s.status === "terminated") { box.replaceWith(el("div", { class: "msg bot err" }, el("p", {}, `The review failed: ${s.error || s.status}`))); return; }
     if (Date.now() - started > 5 * 60_000) { label.textContent = "Still running after 5 minutes. Check back later."; return; }
   }
