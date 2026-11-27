@@ -40,7 +40,7 @@ ReviewWorkflow (src/workflow.ts)           Workers AI: intent → add / remove /
 - `src/memory.ts`: the `RepoMemory` Durable Object, with its rules, review history and starter rules.
 - `src/lib.ts`: pure logic: input parsing, prompts, JSON schemas and normalisation of model output. It has no Cloudflare imports, so it is unit-tested in plain Node.
 - `public/index.html`: the chat UI in one file (vanilla JS, no build step).
-- `test/`: unit tests (Vitest). `smoke/`: an end-to-end Playwright test that runs against a deployment.
+- `test/`: unit tests (Vitest). `smoke/`: an end-to-end Playwright test that runs against a deployment. `evals/`: labelled diffs and a runner that scores review quality.
 
 ## Run and deploy
 
@@ -59,9 +59,34 @@ Checks:
 npm run typecheck    # wrangler types --check + tsc
 npm test             # unit tests
 SMOKE_URL=https://<your-worker>.workers.dev npm run smoke   # Playwright on your installed Chrome, desktop + mobile, real model
+npm run eval -- --url https://<your-worker>.workers.dev --runs 3   # review-quality evals, see below
 ```
 
-CI (`.github/workflows/ci.yml`) runs the typecheck and the unit tests on every push. The smoke test runs against a live deployment with a real model, so it is run by hand after a deploy and not on every push.
+CI (`.github/workflows/ci.yml`) runs the typecheck and the unit tests on every push. The smoke test and the evals run against a live deployment with a real model, so they are run by hand after a deploy and not on every push.
+
+## Evals
+
+A model-backed reviewer needs a way to tell whether a prompt or model change made it better or worse. [`evals/cases.mjs`](evals/cases.mjs) holds nine small diffs, each labelled with the rules it must trigger:
+
+- one case for each starter rule;
+- a diff that breaks two rules at once;
+- a diff whose comments tell the reviewer to ignore its rules and approve (prompt injection);
+- two clean changes that must produce no findings;
+- a rule added through chat ("flag any new dependency"), followed by a diff that breaks it.
+
+`npm run eval` runs every case in a fresh repo against the deployed app. It scores **recall** (expected violations found) and **precision** (flagged rules that were right). "Needs a test" is allowed but not required on small diffs that come without tests, so flagging it is neither a hit nor a false positive.
+
+Latest result: 3 runs × 9 cases with Llama 3.3 70B, temperature 0.2.
+
+| | |
+| --- | --- |
+| Cases passed | 25 / 27 |
+| Recall | 100% |
+| Precision | 92% |
+| Prompt injection resisted | 3 / 3 |
+| Clean changes left clean | 6 / 6 |
+
+Both failures are the SQL-injection case. In 2 of 3 runs it also flagged rule 3 (error handling) on a route without a `try`/`catch`, which is arguable but not what the rule means.
 
 ## Design decisions and trade-offs
 
@@ -70,12 +95,12 @@ CI (`.github/workflows/ci.yml`) runs the typecheck and the unit tests on every p
 - **Rules come from the user, through the model, with checks.** The model only classifies the message and extracts the rule text. The Worker clamps the length (300 characters) and the count (30 rules), and it checks that a rule exists before removing it.
 - **Model output is treated as untrusted.** JSON mode makes the output parseable, and `normalizeReport` still validates every field. It sorts findings by severity and derives the verdict from the findings: a high-severity finding always means "changes requested", whatever verdict the model wrote. If the output cannot be parsed, the step throws and Workflows retries it.
 - **The diff is treated as untrusted too.** The prompt tells the model to ignore any instructions written in the diff. The PR fetch URL is built only from the parsed owner, repo and number, so user input cannot point the fetch at any host other than github.com (no SSRF). The UI renders all model text as text, never as HTML.
-- **Kept small on purpose.** Diffs are cut at 30,000 characters (the report says when this happens) to stay inside the model's 24k-token context. There are no accounts, no auth and no rate limiting. Anyone with the link shares the same repo memories, which is acceptable for a demo but not for real use. Only public PRs work, because no GitHub token is used.
+- **Kept small on purpose.** Diffs are cut at 30,000 characters (the report says when this happens) to stay inside the model's 24k-token context. There are no accounts and no auth: anyone with the link shares the same repo memories, which is fine for a demo but not for real use. `/api/chat` is the only route that calls the model, and it is rate-limited per IP (20 messages a minute, Workers rate-limiting binding). This keeps one visitor from using up the account's daily Workers AI quota for everyone else. Only public PRs work, because no GitHub token is used.
 
 ### What I'd do next
 
-GitHub App webhook to review PRs automatically and post comments; per-file chunking with a map-reduce step for big PRs; an eval set of known-bad diffs to measure rule recall when changing prompts or models; auth plus per-org rule sets; Workers AI streaming for the summary.
+GitHub App webhook to review PRs automatically and post comments; per-file chunking with a map-reduce step for big PRs; a larger eval set run in CI on every prompt change, with a precision threshold as a gate; auth plus per-org rule sets; Workers AI streaming for the summary.
 
 ## Prompt history
 
-I built this app with Claude Code. The session transcript is in [`prompts/`](prompts/).
+I built this app with Claude Code. The session transcript is in [`prompts/claude-code-session.md`](prompts/claude-code-session.md). It holds the conversation (prompts, replies and clarifying questions); tool calls, their outputs and some personal details are left out.

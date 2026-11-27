@@ -19,7 +19,12 @@ export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
     try {
-      if (url.pathname === "/api/chat" && request.method === "POST") return await chat(request, env);
+      if (url.pathname === "/api/chat" && request.method === "POST") {
+        // Keeps one visitor from using up the account's daily Workers AI quota for everyone else.
+        const { success } = await env.CHAT_LIMITER.limit({ key: request.headers.get("cf-connecting-ip") ?? "unknown" });
+        if (!success) return json({ error: "Too many messages. Wait a minute and try again." }, 429);
+        return await chat(request, env);
+      }
 
       const review = url.pathname.match(/^\/api\/reviews\/([\w-]{1,100})$/);
       if (review && request.method === "GET") {
