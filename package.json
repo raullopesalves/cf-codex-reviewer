@@ -1,0 +1,21 @@
+{
+  "name": "codex-reviewer",
+  "version": "1.0.0",
+  "description": "AI code review against a per-repo engineering codex, on Cloudflare Workers AI, Workflows and Durable Objects",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "wrangler types --check && tsc",
+    "test": "vitest run test/",
+    "smoke": "playwright test"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.2",
+    "wrangler": "^4.168.0"
+  },
+  "private": true,
+  "type": "module"
+}

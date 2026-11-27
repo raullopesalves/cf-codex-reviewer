@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Codex reviewer</title>
+<meta name="description" content="Review a diff or a GitHub pull request against your repo's engineering rules.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #17202c;
+    --ink-2: #4a5566;
+    --ink-3: #667080;
+    --paper: #f4f6f8;
+    --surface: #ffffff;
+    --line: #dde2e8;
+    --teal: #0b6b6b;
+    --teal-soft: #e3f1f0;
+    --high: #b42318;
+    --high-soft: #fdecea;
+    --med: #9a4700;
+    --med-soft: #fff1e0;
+    --low: #475467;
+    --add: #e6f4ea;
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; font: 15px/1.5 var(--sans); color: var(--ink); background: var(--paper); }
+  button, input, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .app { display: grid; grid-template-columns: 340px 1fr; height: 100vh; }
+
+  /* The codex: this repo's memory */
+  .codex { background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .codex header { padding: 20px 20px 16px; border-bottom: 1px solid var(--line); }
+  .codex h1 { margin: 0 0 4px; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .codex .lede { margin: 0 0 14px; color: var(--ink-2); font-size: 13.5px; }
+  .repo-field label { display: block; font-size: 13px; color: var(--ink-2); margin-bottom: 4px; }
+  .repo-field input { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 6px; font-family: var(--mono); font-size: 13px; background: var(--paper); }
+  .repo-field p { margin: 6px 0 0; color: var(--ink-3); font-size: 12.5px; }
+  .codex-body { overflow: auto; padding: 16px 20px 24px; flex: 1; }
+  .codex h2 { font-size: 14px; font-weight: 600; margin: 0 0 8px; display: flex; justify-content: space-between; align-items: baseline; }
+  .codex h2 span { font-weight: 400; color: var(--ink-3); font-size: 13px; }
+  ol.rules { list-style: none; margin: 0 0 24px; padding: 0; }
+  ol.rules li { display: grid; grid-template-columns: 28px 1fr; gap: 4px; padding: 8px 6px; border-radius: 6px; font-size: 13.5px; transition: background-color .25s; }
+  ol.rules li .n { font-family: var(--mono); color: var(--ink-3); font-size: 12.5px; padding-top: 1px; }
+  ol.rules li.user .n { color: var(--teal); font-weight: 500; }
+  ol.rules li.lit, ol.rules li.fresh { background: var(--teal-soft); }
+  .history { list-style: none; margin: 0; padding: 0; font-size: 13px; }
+  .history li { padding: 6px 0; border-top: 1px solid var(--line); color: var(--ink-2); }
+  .history b { font-weight: 500; color: var(--ink); }
+  .empty { color: var(--ink-3); font-size: 13px; }
+
+  /* The thread */
+  .thread { display: flex; flex-direction: column; min-height: 0; }
+  .log { flex: 1; overflow: auto; padding: 28px clamp(16px, 4vw, 48px); }
+  .log-inner { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 18px; }
+  .msg.you { align-self: flex-end; max-width: 85%; }
+  .msg.you .bubble { background: var(--ink); color: #fff; border-radius: 12px 12px 2px 12px; padding: 10px 14px; white-space: pre-wrap; word-break: break-word; }
+  .msg.you .bubble.code { font-family: var(--mono); font-size: 12.5px; max-height: 220px; overflow: auto; white-space: pre; }
+  .msg.bot p { margin: 0; }
+  .msg.err p { color: var(--high); }
+
+  .intro h2 { font-size: 22px; font-weight: 600; letter-spacing: -0.015em; margin: 8px 0 6px; }
+  .intro p { margin: 0 0 14px; color: var(--ink-2); max-width: 62ch; }
+  .starters { display: flex; flex-wrap: wrap; gap: 8px; }
+  .starters button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-size: 13.5px; }
+  .starters button:hover { border-color: var(--teal); color: var(--teal); }
+
+  /* Review in progress */
+  .run { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px 16px; font-size: 13.5px; }
+  .run ol { margin: 8px 0 6px; padding-left: 20px; color: var(--ink-2); }
+  .run small { color: var(--ink-3); font-family: var(--mono); font-size: 12px; }
+  .run .state { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } ol.rules li { transition: none; } }
+
+  /* The report */
+  .report { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .report-head { display: flex; gap: 14px; align-items: flex-start; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+  .verdict { flex: none; font-weight: 600; font-size: 13px; padding: 3px 10px; border-radius: 6px; border: 1.5px solid currentColor; }
+  .verdict.request_changes { color: var(--high); background: var(--high-soft); }
+  .verdict.comment { color: var(--med); background: var(--med-soft); }
+  .verdict.approve { color: var(--teal); background: var(--teal-soft); }
+  .report-head p { margin: 0; }
+  .report-head small { display: block; color: var(--ink-3); margin-top: 4px; font-size: 12.5px; }
+  .finding { padding: 14px 18px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 4px 1fr; gap: 14px; }
+  .finding:last-child { border-bottom: 0; }
+  .finding .bar { border-radius: 2px; background: var(--low); }
+  .finding.high .bar { background: var(--high); }
+  .finding.medium .bar { background: var(--med); }
+  .finding-top { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 13px; margin-bottom: 4px; }
+  .sev { font-weight: 600; color: var(--low); }
+  .high .sev { color: var(--high); }
+  .medium .sev { color: var(--med); }
+  .file { font-family: var(--mono); font-size: 12.5px; color: var(--ink-2); }
+  .rule-ref { border: 0; background: none; padding: 0; color: var(--teal); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: 13px; }
+  .finding .issue { margin: 0 0 6px; }
+  .fix { font-size: 14px; color: var(--ink-2); }
+  .fix p { margin: 0; white-space: pre-wrap; }
+  .fix pre { margin: 6px 0; padding: 10px 12px; background: var(--add); border-radius: 6px; overflow: auto; font: 12.5px/1.5 var(--mono); color: var(--ink); }
+
+  .rules-reply ol { margin: 8px 0 0; padding-left: 22px; font-size: 14px; color: var(--ink-2); }
+
+  /* Composer */
+  .composer { border-top: 1px solid var(--line); background: var(--surface); padding: 14px clamp(16px, 4vw, 48px) 18px; }
+  .composer form { max-width: 760px; margin: 0 auto; display: flex; gap: 10px; align-items: flex-end; }
+  .composer textarea { flex: 1; resize: none; min-height: 46px; max-height: 40vh; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); line-height: 1.45; }
+  .composer textarea:focus { border-color: var(--teal); background: var(--surface); }
+  .composer button { flex: none; height: 46px; padding: 0 18px; border: 0; border-radius: 10px; background: var(--teal); color: #fff; font-weight: 600; cursor: pointer; }
+  .composer button:disabled { opacity: .5; cursor: wait; }
+  .composer .tip { max-width: 760px; margin: 6px auto 0; font-size: 12.5px; color: var(--ink-3); }
+
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
+    .codex { border-right: 0; border-bottom: 1px solid var(--line); }
+    .codex-body { max-height: 34vh; }
+    .thread { min-height: 70vh; }
+    .msg.you { max-width: 95%; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="codex" aria-label="Repo memory">
+    <header>
+      <h1>Codex reviewer</h1>
+      <p class="lede">Reviews changes against the rules a repo has agreed on, and remembers those rules and past findings per repo.</p>
+      <form class="repo-field" id="repo-form">
+        <label for="repo">Repo</label>
+        <input id="repo" name="repo" value="playground" spellcheck="false" autocomplete="off" aria-describedby="repo-help">
+        <p id="repo-help">Pasted diffs are filed here. A GitHub PR link picks its own repo.</p>
+      </form>
+    </header>
+    <div class="codex-body">
+      <h2>Rules <span id="rule-count"></span></h2>
+      <ol class="rules" id="rules" aria-live="polite"></ol>
+      <h2>Recent reviews</h2>
+      <ul class="history" id="history"></ul>
+    </div>
+  </aside>
+
+  <main class="thread">
+    <div class="log" id="log">
+      <div class="log-inner" id="log-inner" aria-live="polite">
+        <section class="msg bot intro">
+          <h2>Paste a diff or a pull request link</h2>
+          <p>Each review runs as a durable workflow: fetch the diff, load this repo's rules and history, check it with Llama 3.3, then save what it found. To change the rules, just say so.</p>
+          <div class="starters">
+            <button type="button" data-fill="sample">Review a sample diff</button>
+            <button type="button" data-fill="From now on, flag any new dependency added to package.json.">Add a rule</button>
+            <button type="button" data-fill="What are the rules?">Show the rules</button>
+          </div>
+        </section>
+      </div>
+    </div>
+    <div class="composer">
+      <form id="chat">
+        <label for="input" class="visually-hidden">Message</label>
+        <textarea id="input" rows="1" placeholder="Paste a unified diff, a GitHub PR link, or a rule change" spellcheck="false"></textarea>
+        <button type="submit" id="send">Send</button>
+      </form>
+      <p class="tip">Enter sends, Shift+Enter adds a line. This is a public demo, so don't paste private code.</p>
+    </div>
+  </main>
+</div>
+
+<script>
+const SAMPLE = `diff --git a/package.json b/package.json
+--- a/package.json
++++ b/package.json
+@@ -10,6 +10,7 @@
+   "dependencies": {
+     "hono": "^4.6.0",
++    "moment": "^2.30.1"
+   }
+ }
+diff --git a/src/billing.ts b/src/billing.ts
+--- a/src/billing.ts
++++ b/src/billing.ts
+@@ -1,5 +1,20 @@
+ import { Hono } from "hono";
++import moment from "moment";
++
++const PAYMENTS_API_KEY = "demo_live_4f9a1c2e8b7d6a5f";
+
+ export const billing = new Hono();
++
++billing.post("/invoices", async (c) => {
++  const body = await c.req.json();
++  console.log("creating invoice for", body.email, body.cardNumber);
++  try {
++    const res = await fetch("https://payments.example.com/v1/invoices", {
++      method: "POST",
++      headers: { Authorization: \`Bearer \${PAYMENTS_API_KEY}\` },
++      body: JSON.stringify({ amount: body.amount, due: moment().add(30, "days") }),
++    });
++    return c.json(await res.json());
++  } catch (e) {}
++});
+`;
+
+const $ = (id) => document.getElementById(id);
+const log = $("log-inner"), input = $("input"), send = $("send"), repoInput = $("repo");
+let currentRules = [];
+
+function el(tag, attrs = {}, ...children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k.startsWith("on")) n.addEventListener(k.slice(2), v); else n.setAttribute(k, v);
+  }
+  for (const c of children.flat()) if (c != null) n.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return n;
+}
+function add(node) { log.append(node); $("log").scrollTop = $("log").scrollHeight; return node; }
+function bot(text, cls = "") { return add(el("div", { class: "msg bot " + cls }, el("p", {}, text))); }
+
+// Model text may contain ``` fences: render those as code blocks, the rest as plain text (never as HTML).
+function richText(text) {
+  const wrap = el("div", { class: "fix" });
+  text.split(/```[\w-]*\n?/).forEach((part, i) => {
+    if (!part.trim()) return;
+    wrap.append(i % 2 ? el("pre", {}, part.replace(/\n$/, "")) : el("p", {}, part.trim()));
+  });
+  return wrap;
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function renderRules(rules, freshId) {
+  currentRules = rules;
+  $("rule-count").textContent = `${rules.length}`;
+  const ol = $("rules");
+  ol.replaceChildren(...rules.map((r) =>
+    el("li", { class: (r.source === "user" ? "user" : "") + (r.id === freshId ? " fresh" : ""), id: "rule-" + r.id, title: r.source === "user" ? "Added in chat" : "Starter rule" },
+      el("span", { class: "n" }, r.id), el("span", {}, r.text))));
+  if (!rules.length) ol.append(el("li", {}, el("span"), el("span", { class: "empty" }, "No rules yet. Tell me one to add.")));
+  if (freshId) setTimeout(() => $("rule-" + freshId)?.classList.remove("fresh"), 2500);
+}
+
+function renderHistory(reviews) {
+  const ul = $("history");
+  ul.replaceChildren(...reviews.map((r) =>
+    el("li", {}, el("b", {}, r.source), `: ${r.verdict.replace("_", " ")}, ${r.findings} finding${r.findings === 1 ? "" : "s"}`)));
+  if (!reviews.length) ul.append(el("li", { class: "empty" }, "None yet."));
+}
+
+async function loadMemory() {
+  const repo = repoInput.value.trim() || "playground";
+  try {
+    const m = await api(`/api/memory?repo=${encodeURIComponent(repo)}`);
+    repoInput.value = m.repo;
+    renderRules(m.rules);
+    renderHistory(m.reviews);
+  } catch (e) { bot(e.message, "err"); }
+}
+
+function highlightRule(id, on) { $("rule-" + id)?.classList.toggle("lit", on); }
+
+function renderReport(out) {
+  const { report, source, truncated, rulesChecked } = out;
+  const verdictText = { approve: "Approve", comment: "Comment", request_changes: "Changes requested" }[report.verdict];
+  const counts = ["high", "medium", "low"].map((s) => [s, report.findings.filter((f) => f.severity === s).length]).filter(([, n]) => n);
+  const meta = [source, `${rulesChecked} rules checked`, counts.map(([s, n]) => `${n} ${s}`).join(", "), truncated ? "diff truncated to 30,000 characters" : ""].filter(Boolean).join("; ");
+  const card = el("article", { class: "report" },
+    el("div", { class: "report-head" },
+      el("span", { class: "verdict " + report.verdict }, verdictText),
+      el("div", {}, el("p", {}, report.summary), el("small", {}, meta))),
+    report.findings.map((f) => {
+      const rule = currentRules.find((r) => r.id === f.ruleId);
+      return el("div", { class: "finding " + f.severity },
+        el("span", { class: "bar", "aria-hidden": "true" }),
+        el("div", {},
+          el("div", { class: "finding-top" },
+            el("span", { class: "sev" }, f.severity[0].toUpperCase() + f.severity.slice(1)),
+            f.file ? el("span", { class: "file" }, f.file) : null,
+            f.ruleId ? el("button", {
+              type: "button", class: "rule-ref", title: rule ? rule.text : "",
+              onmouseenter: () => highlightRule(f.ruleId, true), onmouseleave: () => highlightRule(f.ruleId, false),
+              onfocus: () => highlightRule(f.ruleId, true), onblur: () => highlightRule(f.ruleId, false),
+              onclick: () => $("rule-" + f.ruleId)?.scrollIntoView({ block: "nearest", behavior: "smooth" }),
+            }, `Rule ${f.ruleId}`) : null),
+          el("p", { class: "issue" }, f.issue),
+          f.fix ? richText(f.fix) : null));
+    }));
+  if (!report.findings.length) card.append(el("div", { class: "finding low" }, el("span", { class: "bar" }), el("p", { class: "issue" }, "No rule was broken.")));
+  return card;
+}
+
+const STEPS = ["Fetch the diff", "Load repo rules and memory", "Review with Llama 3.3", "Save findings to repo memory"];
+
+async function followReview(id) {
+  const label = el("span", {}, "Queued");
+  const box = add(el("div", { class: "msg bot run" },
+    el("div", { class: "state" }, el("span", { class: "dot", "aria-hidden": "true" }), label),
+    el("ol", {}, STEPS.map((s) => el("li", {}, s))),
+    el("small", {}, `Workflow instance ${id}`)));
+  const started = Date.now();
+  while (true) {
+    await new Promise((r) => setTimeout(r, 1500));
+    let s;
+    try { s = await api(`/api/reviews/${id}`); } catch { continue; }
+    const secs = Math.round((Date.now() - started) / 1000);
+    label.textContent = { queued: "Queued", running: `Running, ${secs}s`, waiting: `Waiting to retry, ${secs}s` }[s.status] || s.status;
+    if (s.status === "complete") { box.replaceWith(renderReport(s.output)); loadMemory(); return; }
+    if (s.status === "errored" || s.status === "terminated") { box.replaceWith(el("div", { class: "msg bot err" }, el("p", {}, `The review failed: ${s.error || s.status}`))); return; }
+    if (Date.now() - started > 5 * 60_000) { label.textContent = "Still running after 5 minutes. Check back later."; return; }
+  }
+}
+
+async function submit(text) {
+  text = text.trim();
+  if (!text || send.disabled) return;
+  const isCode = /^(diff --git|@@ |--- )/m.test(text);
+  add(el("div", { class: "msg you" }, el("div", { class: "bubble" + (isCode ? " code" : "") }, text)));
+  input.value = ""; autosize();
+  send.disabled = true;
+  try {
+    const r = await api("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ repo: repoInput.value, message: text }) });
+    if (r.repo && r.repo !== repoInput.value) { repoInput.value = r.repo; await loadMemory(); }
+    if (r.type === "review_started") { send.disabled = false; await followReview(r.id); return; }
+    if (r.type === "rules") {
+      const before = new Set(currentRules.map((x) => x.id));
+      const fresh = r.rules.find((x) => !before.has(x.id));
+      renderRules(r.rules, fresh?.id);
+      add(el("div", { class: "msg bot rules-reply" }, el("p", {}, r.reply), fresh ? null : el("ol", {}, r.rules.map((x) => el("li", { value: x.id }, x.text)))));
+    } else bot(r.reply);
+  } catch (e) { bot(e.message, "err"); }
+  finally { send.disabled = false; input.focus(); }
+}
+
+function autosize() { input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, window.innerHeight * 0.4) + "px"; }
+input.addEventListener("input", autosize);
+input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(input.value); } });
+$("chat").addEventListener("submit", (e) => { e.preventDefault(); submit(input.value); });
+$("repo-form").addEventListener("submit", (e) => { e.preventDefault(); loadMemory(); });
+repoInput.addEventListener("change", loadMemory);
+document.querySelectorAll("[data-fill]").forEach((b) => b.addEventListener("click", () => submit(b.dataset.fill === "sample" ? SAMPLE : b.dataset.fill)));
+loadMemory();
+</script>
+</body>
+</html>
